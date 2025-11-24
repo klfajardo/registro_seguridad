@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Seguridad The Navy - Registro</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="./assets/logo.png" alt="Seguridad The Navy" class="brand-logo" />
+      <div class="brand-text">
+        <div class="brand-title">SEGURIDAD THE NAVY</div>
+        <div class="brand-subtitle">Control de visitantes</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="clock" class="clock"></div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-view="registro">Registro</button>
+    <button class="tab" data-view="historial">Historial</button>
+  </nav>
+
+  <main class="container">
+    <section id="view-registro" class="view active">
+      <div class="card">
+        <button id="btn-scan" class="btn btn-scan">Escanear cédula</button>
+        <div class="form">
+          <label>
+            Cédula
+            <input id="cedula" type="text" inputmode="numeric" placeholder="123456789" />
+          </label>
+          <label>
+            Nombre completo
+            <input id="nombre" type="text" placeholder="Nombre Apellido1 Apellido2" />
+          </label>
+          <label>
+            Destino
+            <input id="destino" type="text" placeholder="Casa / torre / persona" list="destinos-sugeridos" />
+            <datalist id="destinos-sugeridos"></datalist>
+          </label>
+
+          <label class="checkbox-row">
+            <input id="conVehiculo" type="checkbox" />
+            Con vehículo
+          </label>
+
+          <div id="vehiculo-fields" class="vehiculo-fields hidden">
+            <label>
+              Placa
+              <input id="placa" type="text" placeholder="ABC123" />
+            </label>
+            <div id="placas-sugeridas" class="chips"></div>
+          </div>
+
+          <div class="toggle-row">
+            <span>Tipo</span>
+            <div class="toggle">
+              <button id="toggle-entrada" class="toggle-btn active" data-value="entrada">Entrada</button>
+              <button id="toggle-salida" class="toggle-btn" data-value="salida">Salida</button>
+            </div>
+          </div>
+
+          <button id="btn-registrar" class="btn btn-primary">Registrar</button>
+          <div id="form-msg" class="form-msg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Últimos eventos</h2>
+          <div class="filters">
+            <button class="chip active" data-range="24h">24h</button>
+            <button class="chip" data-range="7d">7d</button>
+            <button class="chip" data-range="all">Todo</button>
+          </div>
+        </div>
+        <div class="search-row">
+          <input id="search-live" type="search" placeholder="Buscar por cédula, nombre o placa" />
+        </div>
+        <ul id="live-list" class="list"></ul>
+      </div>
+    </section>
+
+    <section id="view-historial" class="view">
+      <div class="card">
+        <div class="historial-header">
+          <div class="search-tabs">
+            <button class="chip active" data-searchtype="cedula">Cédula</button>
+            <button class="chip" data-searchtype="nombre">Nombre</button>
+            <button class="chip" data-searchtype="placa">Placa</button>
+          </div>
+          <div class="filters">
+            <button class="chip active" data-range="24h">24h</button>
+            <button class="chip" data-range="7d">7d</button>
+            <button class="chip" data-range="all">Todo</button>
+          </div>
+        </div>
+        <div class="search-row">
+          <input id="search-hist" type="search" placeholder="Buscar..." />
+        </div>
+        <ul id="hist-list" class="list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <div id="scanner-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <h3>Escanear cédula</h3>
+        <button id="close-scan" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <video id="video" class="video" autoplay muted playsinline></video>
+      <div class="scan-hint">Enfoca el código de barras PDF417 del reverso.</div>
+      <div id="scan-status" class="scan-status"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <footer class="footer">
+    Datos recolectados solo para control de ingreso del condominio.
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
