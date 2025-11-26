@@ -3,7 +3,7 @@ import {
   BarcodeFormat,
   DecodeHintType,
   NotFoundException,
-} from "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm";
+} from "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/+esm";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
