@@ -12,6 +12,7 @@ const router = express.Router();
 const { EVENTOS } = getTableNames();
 
 // GET /api/eventos?range=24h&search=algo&type=entrada
+// Busca por: cédula, nombre, placa, destino, tipo_evento, y campos derivados persona_nombre / vehiculo_placa_texto
 router.get("/", async (req, res) => {
   try {
     const range = sanitize(req.query.range) || "24h";
@@ -19,16 +20,23 @@ router.get("/", async (req, res) => {
     const type = sanitize(req.query.type);
 
     const clauses = [];
+
     const rf = rangeFormula(range);
     if (rf) clauses.push(rf);
+
     if (type) clauses.push(airtableEq("tipo_evento", type));
+
     if (search) {
-      clauses.push(
-        `OR(${airtableContains("destino", search)}, ${airtableContains(
-          "tipo_evento",
-          search
-        )})`
-      );
+      const searchFormula = `OR(
+        ${airtableContains("cedula", search)},
+        ${airtableContains("nombre_completo", search)},
+        ${airtableContains("placa", search)},
+        ${airtableContains("destino", search)},
+        ${airtableContains("tipo_evento", search)},
+        ${airtableContains("persona_nombre", search)},
+        ${airtableContains("vehiculo_placa_texto", search)}
+      )`;
+      clauses.push(searchFormula);
     }
 
     const formula = buildFilterByFormula(clauses);
@@ -55,6 +63,11 @@ router.post("/", async (req, res) => {
     const metodo_registro = sanitize(req.body.metodo_registro) || "manual";
     const observacion_corta = sanitize(req.body.observacion_corta);
 
+    // Campos de texto plano para búsquedas y UI
+    const cedula = sanitize(req.body.cedula);
+    const nombre_completo = sanitize(req.body.nombre_completo);
+    const placa = sanitize(req.body.placa);
+
     if (!persona_record_id || !destino) {
       return res
         .status(400)
@@ -62,6 +75,7 @@ router.post("/", async (req, res) => {
     }
 
     const fields = {
+      // links
       persona_cedula: [persona_record_id],
       destino,
       tipo_evento,
@@ -70,7 +84,14 @@ router.post("/", async (req, res) => {
       observacion_corta: observacion_corta || undefined,
     };
 
-    if (vehiculo_record_id) fields.vehiculo_placa = [vehiculo_record_id];
+    if (vehiculo_record_id) {
+      fields.vehiculo_placa = [vehiculo_record_id];
+    }
+
+    // Copias en texto para que el search y la UI funcionen sin depender de fórmulas
+    if (cedula) fields.cedula = cedula;
+    if (nombre_completo) fields.nombre_completo = nombre_completo;
+    if (placa) fields.placa = placa;
 
     const created = await airtablePost(EVENTOS, {
       records: [{ fields }],
