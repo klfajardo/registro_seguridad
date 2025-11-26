@@ -1,10 +1,17 @@
 import express from "express";
 import { airtableGet, airtablePost, getTableNames } from "../airtable.js";
-import { sanitize, buildFilterByFormula, airtableEq, airtableContains, rangeFormula } from "../utils.js";
+import {
+  sanitize,
+  buildFilterByFormula,
+  airtableEq,
+  airtableContains,
+  rangeFormula,
+} from "../utils.js";
 
 const router = express.Router();
 const { EVENTOS } = getTableNames();
 
+// GET /api/eventos?range=24h&search=algo&type=entrada
 router.get("/", async (req, res) => {
   try {
     const range = sanitize(req.query.range) || "24h";
@@ -16,7 +23,12 @@ router.get("/", async (req, res) => {
     if (rf) clauses.push(rf);
     if (type) clauses.push(airtableEq("tipo_evento", type));
     if (search) {
-      clauses.push(`OR(${airtableContains("destino", search)}, ${airtableContains("tipo_evento", search)})`);
+      clauses.push(
+        `OR(${airtableContains("destino", search)}, ${airtableContains(
+          "tipo_evento",
+          search
+        )})`
+      );
     }
 
     const formula = buildFilterByFormula(clauses);
@@ -24,14 +36,16 @@ router.get("/", async (req, res) => {
     const data = await airtableGet(EVENTOS, {
       filterByFormula: formula || undefined,
       maxRecords: 50,
-      sort: JSON.stringify([{ field: "fecha_hora", direction: "desc" }])
+      sort: [{ field: "fecha_hora", direction: "desc" }],
     });
+
     res.json(data.records || []);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+// POST /api/eventos
 router.post("/", async (req, res) => {
   try {
     const persona_record_id = sanitize(req.body.persona_record_id);
@@ -42,7 +56,9 @@ router.post("/", async (req, res) => {
     const observacion_corta = sanitize(req.body.observacion_corta);
 
     if (!persona_record_id || !destino) {
-      return res.status(400).json({ error: "persona_record_id y destino son requeridos" });
+      return res
+        .status(400)
+        .json({ error: "persona_record_id y destino son requeridos" });
     }
 
     const fields = {
@@ -51,14 +67,15 @@ router.post("/", async (req, res) => {
       tipo_evento,
       fecha_hora: new Date().toISOString(),
       metodo_registro,
-      observacion_corta: observacion_corta || undefined
+      observacion_corta: observacion_corta || undefined,
     };
 
     if (vehiculo_record_id) fields.vehiculo_placa = [vehiculo_record_id];
 
     const created = await airtablePost(EVENTOS, {
-      records: [{ fields }]
+      records: [{ fields }],
     });
+
     res.json({ created: true, record: created.records[0] });
   } catch (e) {
     res.status(500).json({ error: e.message });

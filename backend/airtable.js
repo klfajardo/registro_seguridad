@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import "dotenv/config";
 
 const BASE_ID = process.env.AIRTABLE_BASE_ID;
 const TOKEN = process.env.AIRTABLE_TOKEN;
@@ -11,16 +11,31 @@ const API_URL = `https://api.airtable.com/v0/${BASE_ID}`;
 
 function headers() {
   return {
-    "Authorization": `Bearer ${TOKEN}`,
-    "Content-Type": "application/json"
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
   };
 }
 
+// Airtable NO acepta sort como JSON string.
+// Este helper convierte sort: [{field, direction}] a querystring correcto.
 export async function airtableGet(table, params = {}) {
   const url = new URL(`${API_URL}/${encodeURIComponent(table)}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+
+  const { sort, ...rest } = params;
+
+  Object.entries(rest).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") {
+      url.searchParams.set(k, v);
+    }
   });
+
+  if (Array.isArray(sort)) {
+    sort.forEach((s, i) => {
+      if (s?.field) url.searchParams.set(`sort[${i}][field]`, s.field);
+      if (s?.direction) url.searchParams.set(`sort[${i}][direction]`, s.direction);
+    });
+  }
+
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) {
     const text = await res.text();
@@ -33,7 +48,7 @@ export async function airtablePost(table, body) {
   const res = await fetch(`${API_URL}/${encodeURIComponent(table)}`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -43,11 +58,14 @@ export async function airtablePost(table, body) {
 }
 
 export async function airtablePatch(table, recordId, fields) {
-  const res = await fetch(`${API_URL}/${encodeURIComponent(table)}/${recordId}`, {
-    method: "PATCH",
-    headers: headers(),
-    body: JSON.stringify({ fields })
-  });
+  const res = await fetch(
+    `${API_URL}/${encodeURIComponent(table)}/${recordId}`,
+    {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ fields }),
+    }
+  );
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Airtable PATCH error ${res.status}: ${text}`);

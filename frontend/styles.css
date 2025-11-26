@@ -200,3 +200,14 @@ input:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(29,40,86,.12)}
     display:grid;grid-template-columns:1fr 1fr;gap:12px;
   }
 }
+
+/* FIX: asegurar que hidden siempre gane */
+.hidden {
+  display: none !important;
+}
+
+/* opcional extra por claridad */
+.modal.hidden {
+  display: none !important;
+}
+
