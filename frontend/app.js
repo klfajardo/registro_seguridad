@@ -136,7 +136,35 @@ function parseCedulaPayload(text) {
   return { cedula, nombre_completo: nombre };
 }
 
-// --- ESCÁNER DE CÉDULA (NUEVO) ---
+/**
+ * Descifra bytes de la cédula CR usando el XOR documentado (repo Python-Datos-Cedula-Costa-Rica)
+ */
+function decodeCedulaCR(byteArray) {
+  if (!byteArray || !byteArray.length) return "";
+  const key = [
+    0x27, 0x30, 0x04, 0xA0, 0x00, 0x0F, 0x93, 0x12,
+    0xA0, 0xD1, 0x22, 0xE0, 0x03, 0xD0, 0x00, 0xDF, 0x00,
+  ];
+  let index = 0;
+  let out = "";
+
+  for (let i = 0; i < byteArray.length; i++) {
+    const b = byteArray[i];
+    const decrypted = b ^ key[index];
+    index++;
+    if (index >= key.length) index = 0;
+
+    const ch = String.fromCharCode(decrypted);
+    if (/[0-9A-Za-z]/.test(ch)) {
+      out += ch;
+    } else {
+      out += " ";
+    }
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+// --- ESCÁNER DE CÉDULA ---
 
 let scannerReader = null;
 let scannerControls = null;
@@ -154,11 +182,38 @@ function getScanner() {
   return scannerReader;
 }
 
-function handleScanResult(rawText) {
+function handleScanResult(result) {
   const statusEl = $("#scan-status");
+
+  let rawText = "";
+  let rawBytes = null;
+
+  if (result) {
+    if (typeof result.getText === "function") {
+      rawText = result.getText() || "";
+    } else {
+      rawText = result.text || "";
+    }
+
+    if (typeof result.getRawBytes === "function") {
+      rawBytes = result.getRawBytes();
+    } else {
+      rawBytes = result.rawBytes || null;
+    }
+  }
+
   console.log("RAW SCAN:", rawText);
 
-  const parsed = parseCedulaPayload(rawText);
+  // 1) Intentar directamente con el texto
+  let parsed = parseCedulaPayload(rawText);
+
+  // 2) Si no sirve, intentar descifrar los bytes con XOR y volver a parsear
+  if (!parsed && rawBytes && rawBytes.length) {
+    const decrypted = decodeCedulaCR(rawBytes);
+    console.log("DECRYPTED:", decrypted);
+    parsed = parseCedulaPayload(decrypted);
+  }
+
   if (!parsed) {
     if (statusEl) {
       statusEl.textContent =
@@ -194,16 +249,11 @@ async function openScanner() {
       "video", // id del elemento <video id="video">
       (result, err, controls) => {
         if (result) {
-          const rawText =
-            typeof result.getText === "function"
-              ? result.getText()
-              : result.text || "";
-
           if (statusEl) {
             statusEl.textContent = "Código leído, procesando...";
           }
 
-          handleScanResult(rawText);
+          handleScanResult(result);
 
           controls.stop();
           scannerControls = null;
