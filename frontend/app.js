@@ -137,7 +137,7 @@ function parseCedulaPayload(text) {
 }
 
 /**
- * Descifra bytes de la cédula CR usando el XOR documentado (repo Python-Datos-Cedula-Costa-Rica)
+ * Descifra bytes de la cédula CR usando XOR (llave pública conocida)
  */
 function decodeCedulaCR(byteArray) {
   if (!byteArray || !byteArray.length) return "";
@@ -167,7 +167,6 @@ function decodeCedulaCR(byteArray) {
 // --- ESCÁNER DE CÉDULA ---
 
 let scannerReader = null;
-let scannerControls = null;
 
 function getScanner() {
   if (!scannerReader) {
@@ -197,21 +196,32 @@ function handleScanResult(result) {
 
     if (typeof result.getRawBytes === "function") {
       rawBytes = result.getRawBytes();
-    } else {
-      rawBytes = result.rawBytes || null;
+    } else if (result.rawBytes) {
+      rawBytes = result.rawBytes;
     }
   }
 
   console.log("RAW SCAN:", rawText);
 
-  // 1) Intentar directamente con el texto
+  // 1) Intentar parseo directo
   let parsed = parseCedulaPayload(rawText);
 
-  // 2) Si no sirve, intentar descifrar los bytes con XOR y volver a parsear
-  if (!parsed && rawBytes && rawBytes.length) {
-    const decrypted = decodeCedulaCR(rawBytes);
-    console.log("DECRYPTED:", decrypted);
-    parsed = parseCedulaPayload(decrypted);
+  // 2) Si no, intentamos con XOR sobre bytes
+  if (!parsed) {
+    let bytes = null;
+
+    if (rawBytes && rawBytes.length) {
+      bytes = rawBytes;
+    } else if (rawText && rawText.length) {
+      // fallback: usamos los charCodes del texto crudo
+      bytes = Array.from(rawText, (ch) => ch.charCodeAt(0));
+    }
+
+    if (bytes && bytes.length) {
+      const decrypted = decodeCedulaCR(bytes);
+      console.log("DECRYPTED:", decrypted);
+      parsed = parseCedulaPayload(decrypted);
+    }
   }
 
   if (!parsed) {
@@ -244,20 +254,19 @@ async function openScanner() {
   const reader = getScanner();
 
   try {
-    scannerControls = await reader.decodeFromVideoDevice(
-      null, // cámara por defecto (intentará trasera en móviles)
-      "video", // id del elemento <video id="video">
-      (result, err, controls) => {
+    await reader.decodeFromVideoDevice(
+      null, // cámara por defecto
+      "video", // id del <video>
+      (result, err) => {
         if (result) {
           if (statusEl) {
             statusEl.textContent = "Código leído, procesando...";
           }
-
-          handleScanResult(result);
-
-          controls.stop();
-          scannerControls = null;
-          closeScanner();
+          try {
+            handleScanResult(result);
+          } finally {
+            closeScanner();
+          }
           return;
         }
 
@@ -282,15 +291,6 @@ async function openScanner() {
 function closeScanner() {
   const modal = $("#scanner-modal");
   if (modal) modal.classList.add("hidden");
-
-  if (scannerControls) {
-    try {
-      scannerControls.stop();
-    } catch (e) {
-      console.warn("Error deteniendo scannerControls:", e);
-    }
-    scannerControls = null;
-  }
 
   if (scannerReader) {
     try {
@@ -627,7 +627,7 @@ async function refreshHistorial() {
     const events = await api(
       `/api/eventos?range=${state.histRange}&search=${encodeURIComponent(q)}`
     );
-    renderEvents($("#hist-list"), events);
+      renderEvents($("#hist-list"), events);
   } catch {}
 }
 
