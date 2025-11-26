@@ -109,32 +109,55 @@ async function api(path, opts) {
 
 function parseCedulaPayload(text) {
   if (!text) return null;
-  const cleaned = String(text).replace(/\u0000/g, " ").trim();
-  const parts = cleaned
-    .split(/\n|\||\r|\s{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
 
+  // limpiamos caracteres raros, dejamos solo letras, dígitos y espacios
+  const cleaned = String(text)
+    .replace(/[^\dA-Za-zÁÉÍÓÚÑáéíóúñ ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const parts = cleaned.split(" ").filter(Boolean);
+
+  // ----- CÉDULA -----
   let cedula = null;
   for (const p of parts) {
     const digits = p.replace(/\D+/g, "");
-    if (/^\d{9,12}$/.test(digits)) {
+    if (/^\d{9}$/.test(digits)) {
       cedula = digits;
       break;
     }
   }
 
-  let nombre = null;
-  const letterParts = parts.filter((p) =>
-    /[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(p)
-  );
-  if (letterParts.length) {
-    nombre = letterParts.sort((a, b) => b.length - a.length)[0];
+  // ----- NOMBRE -----
+  // palabras que:
+  // - tienen letras
+  // - NO tienen dígitos
+  // - están mayormente/en su totalidad en mayúscula
+  const nameTokens = [];
+  for (const p of parts) {
+    if (/\d/.test(p)) continue; // descartamos tokens con números
+    if (!/[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(p)) continue;
+
+    const letters = p.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, "");
+    if (!letters) continue;
+
+    // si está todo en mayúscula, lo consideramos parte del nombre
+    if (letters === letters.toUpperCase()) {
+      nameTokens.push(p);
+    }
+
+    if (nameTokens.length >= 4) break; // con 3-4 palabras estamos bien
   }
 
+  const nombre = nameTokens.join(" ");
+
   if (!cedula && !nombre) return null;
-  return { cedula, nombre_completo: nombre };
+  return {
+    cedula: cedula || null,
+    nombre_completo: nombre || null,
+  };
 }
+
 
 /* ------------ DECODIFICAR CÉDULA CR (PDF417 + XOR) ------------ */
 
