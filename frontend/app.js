@@ -109,15 +109,15 @@ async function api(path, opts) {
 
 function parseCedulaPayload(text) {
   if (!text) return null;
-  const cleaned = text.replace(/\u0000/g, " ").trim();
+  const cleaned = String(text).replace(/\u0000/g, " ").trim();
   const parts = cleaned
-    .split(/\n|\||\r/)
+    .split(/\n|\||\r|\s{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
 
   let cedula = null;
   for (const p of parts) {
-    const digits = p.replace(/\s+/g, "");
+    const digits = p.replace(/\D+/g, "");
     if (/^\d{9,12}$/.test(digits)) {
       cedula = digits;
       break;
@@ -136,37 +136,70 @@ function parseCedulaPayload(text) {
   return { cedula, nombre_completo: nombre };
 }
 
-/**
- * Descifra bytes de la cédula CR usando XOR (llave pública conocida)
- */
-function decodeCedulaCR(byteArray) {
-  if (!byteArray || !byteArray.length) return "";
-  const key = [
-    0x27, 0x30, 0x04, 0xA0, 0x00, 0x0F, 0x93, 0x12,
-    0xA0, 0xD1, 0x22, 0xE0, 0x03, 0xD0, 0x00, 0xDF, 0x00,
-  ];
-  let index = 0;
-  let out = "";
+/* ------------ DECODIFICAR CÉDULA CR (PDF417 + XOR) ------------ */
 
-  for (let i = 0; i < byteArray.length; i++) {
-    const b = byteArray[i];
-    const decrypted = b ^ key[index];
-    index++;
-    if (index >= key.length) index = 0;
+function decodeCedulaCR(raw) {
+  let rawBytes;
 
-    const ch = String.fromCharCode(decrypted);
-    if (/[0-9A-Za-z]/.test(ch)) {
-      out += ch;
-    } else {
-      out += " ";
+  if (raw instanceof Uint8Array) {
+    rawBytes = raw;
+  } else if (Array.isArray(raw)) {
+    rawBytes = new Uint8Array(raw);
+  } else if (typeof raw === "string") {
+    // cada char -> un byte (como hace ZXing internamente), NO TextEncoder
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      arr[i] = raw.charCodeAt(i) & 0xff;
     }
+    rawBytes = arr;
+  } else {
+    return null;
   }
-  return out.replace(/\s+/g, " ").trim();
+
+  const keyVariants = [
+    // variante según repo en Python
+    Uint8Array.from([
+      0x27, 0x30, 0x04, 0xa0, 0x00, 0x0f, 0x93, 0x12, 0xa0, 0xd1, 0x22,
+      0xe0, 0x03, 0xd0, 0x00, 0xdf, 0x00,
+    ]),
+    // variante según repo Android (por si acaso)
+    Uint8Array.from([
+      0x27, 0x30, 0x04, 0xa0, 0x00, 0x0f, 0x93, 0x12, 0xa0, 0xd1, 0x33,
+      0xe0, 0x03, 0xd0, 0x00, 0xdf, 0x00,
+    ]),
+  ];
+
+  let fallback = null;
+
+  for (let v = 0; v < keyVariants.length; v++) {
+    const key = keyVariants[v];
+    let out = "";
+    let j = 0;
+
+    for (let i = 0; i < rawBytes.length; i++) {
+      const c = String.fromCharCode(key[j] ^ rawBytes[i]);
+      out += /[A-Za-z0-9]/.test(c) ? c : " ";
+      j++;
+      if (j === key.length) j = 0;
+    }
+
+    const digits = out.replace(/\D+/g, "");
+    if (/\d{9}/.test(digits)) {
+      console.log("DECODED (variante", v, "):", out);
+      return out;
+    }
+
+    if (!fallback) fallback = out;
+  }
+
+  console.log("DECODED (fallback):", fallback);
+  return fallback;
 }
 
-// --- ESCÁNER DE CÉDULA ---
+/* ---------------- ESCÁNER DE CÉDULA ---------------- */
 
 let scannerReader = null;
+let scannerControls = null;
 
 function getScanner() {
   if (!scannerReader) {
@@ -181,48 +214,14 @@ function getScanner() {
   return scannerReader;
 }
 
-function handleScanResult(result) {
+function handleScanResult(raw) {
+  console.log("RAW SCAN:", raw);
+
+  const decodedString = decodeCedulaCR(raw) || String(raw || "");
+  console.log("DECODED STRING:", decodedString);
+
+  const parsed = parseCedulaPayload(decodedString);
   const statusEl = $("#scan-status");
-
-  let rawText = "";
-  let rawBytes = null;
-
-  if (result) {
-    if (typeof result.getText === "function") {
-      rawText = result.getText() || "";
-    } else {
-      rawText = result.text || "";
-    }
-
-    if (typeof result.getRawBytes === "function") {
-      rawBytes = result.getRawBytes();
-    } else if (result.rawBytes) {
-      rawBytes = result.rawBytes;
-    }
-  }
-
-  console.log("RAW SCAN:", rawText);
-
-  // 1) Intentar parseo directo
-  let parsed = parseCedulaPayload(rawText);
-
-  // 2) Si no, intentamos con XOR sobre bytes
-  if (!parsed) {
-    let bytes = null;
-
-    if (rawBytes && rawBytes.length) {
-      bytes = rawBytes;
-    } else if (rawText && rawText.length) {
-      // fallback: usamos los charCodes del texto crudo
-      bytes = Array.from(rawText, (ch) => ch.charCodeAt(0));
-    }
-
-    if (bytes && bytes.length) {
-      const decrypted = decodeCedulaCR(bytes);
-      console.log("DECRYPTED:", decrypted);
-      parsed = parseCedulaPayload(decrypted);
-    }
-  }
 
   if (!parsed) {
     if (statusEl) {
@@ -232,11 +231,13 @@ function handleScanResult(result) {
     return;
   }
 
-  if (statusEl) {
-    statusEl.textContent = "Cédula leída. Rellenando datos…";
-  }
+  if (statusEl) statusEl.textContent = "Cédula leída. Rellenando datos…";
+
   fillFromScan(parsed);
   toast("Cédula leída");
+
+  // cerramos escáner solo si todo fue bien
+  closeScanner();
 }
 
 async function openScanner() {
@@ -254,18 +255,35 @@ async function openScanner() {
   const reader = getScanner();
 
   try {
-    await reader.decodeFromVideoDevice(
-      null, // cámara por defecto
-      "video", // id del <video>
+    scannerControls = await reader.decodeFromVideoDevice(
+      null,
+      "video",
       (result, err) => {
         if (result) {
-          if (statusEl) {
-            statusEl.textContent = "Código leído, procesando...";
-          }
-          try {
-            handleScanResult(result);
-          } finally {
-            closeScanner();
+          const rawBytes =
+            typeof result.getRawBytes === "function" &&
+            result.getRawBytes()
+              ? result.getRawBytes()
+              : null;
+
+          const raw =
+            rawBytes && rawBytes.length
+              ? rawBytes
+              : typeof result.getText === "function"
+              ? result.getText()
+              : "";
+
+          if (statusEl) statusEl.textContent = "Código leído, procesando...";
+          handleScanResult(raw);
+
+          // detener cámara aquí, no usar el "controls" del callback
+          if (scannerControls) {
+            try {
+              scannerControls.stop();
+            } catch (e) {
+              console.warn("Error al detener scannerControls:", e);
+            }
+            scannerControls = null;
           }
           return;
         }
@@ -292,6 +310,15 @@ function closeScanner() {
   const modal = $("#scanner-modal");
   if (modal) modal.classList.add("hidden");
 
+  if (scannerControls) {
+    try {
+      scannerControls.stop();
+    } catch (e) {
+      console.warn("Error deteniendo scannerControls:", e);
+    }
+    scannerControls = null;
+  }
+
   if (scannerReader) {
     try {
       scannerReader.reset();
@@ -306,6 +333,8 @@ $("#close-scan").addEventListener("click", closeScanner);
 $("#scanner-modal").addEventListener("click", (e) => {
   if (e.target.id === "scanner-modal") closeScanner();
 });
+
+/* --------------- RELLENO TRAS ESCANEO ---------------- */
 
 async function fillFromScan({ cedula, nombre_completo }) {
   if (cedula) $("#cedula").value = cedula;
@@ -379,6 +408,8 @@ function renderPlacasSugeridas(records) {
     wrap.appendChild(chip);
   });
 }
+
+/* ---------------- FORMULARIO PRINCIPAL ---------------- */
 
 $("#cedula").addEventListener(
   "input",
@@ -520,6 +551,8 @@ async function registerEvent({
   return evRes.record;
 }
 
+/* ---------------- OFFLINE ---------------- */
+
 function enqueueOffline(payload) {
   state.offlineQueue.push({ payload, ts: Date.now() });
   localStorage.setItem(
@@ -550,6 +583,8 @@ async function flushOffline() {
   }
 }
 window.addEventListener("online", flushOffline);
+
+/* ---------------- LISTAS / HISTORIAL ---------------- */
 
 async function refreshLive() {
   try {
@@ -627,7 +662,7 @@ async function refreshHistorial() {
     const events = await api(
       `/api/eventos?range=${state.histRange}&search=${encodeURIComponent(q)}`
     );
-      renderEvents($("#hist-list"), events);
+    renderEvents($("#hist-list"), events);
   } catch {}
 }
 
@@ -650,6 +685,8 @@ $("#view-historial .historial-header").addEventListener("click", (e) => {
     refreshHistorial();
   }
 });
+
+/* ---------------- INIT ---------------- */
 
 startClock();
 initTabs();
